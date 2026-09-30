@@ -66,7 +66,7 @@ default_rows = pd.DataFrame({
 edited = st.data_editor(
     default_rows,
     num_rows="dynamic",
-    use_container_width=True,
+    width="stretch",
     column_config={
         "Ημερομηνία": st.column_config.DateColumn(
             "Ημερομηνία",
@@ -108,10 +108,19 @@ for _, selection in edited.iterrows():
     selected_time = selection["Τέταρτο"]
     selected_side = selection["Τύπος"]
 
-    # Δημιουργούμε το MTU
-    mtu = pd.Timestamp(
-        f"{selected_date} {selected_time}"
-    )
+    # Έλεγχος αν κάποιο πεδίο είναι κενό/None για αποφυγή σφαλμάτων
+    if pd.isna(selected_date) or pd.isna(selected_time) or not selected_side:
+        continue
+
+    # Ασφαλής μετατροπή σε Timestamp ελέγχοντας τον τύπο δεδομένων
+    try:
+        if isinstance(selected_date, str):
+            mtu = pd.Timestamp(f"{selected_date} {selected_time}")
+        else:
+            # Αν είναι ήδη date object από το DateColumn
+            mtu = pd.Timestamp(selected_date.strftime("%Y-%m-%d") + f" {selected_time}")
+    except Exception:
+        continue
 
     curve = df[
         (df["MTU"] == mtu)
@@ -122,11 +131,9 @@ for _, selection in edited.iterrows():
     if curve.empty:
         continue
 
-    name = (
-        f"{pd.Timestamp(selected_date):%d/%m/%Y} "
-        f"{selected_time} - "
-        f"{selected_side}"
-    )
+    # Μετατροπή ημερομηνίας ασφαλώς για το όνομα
+    date_str = selected_date.strftime("%d/%m/%Y") if hasattr(selected_date, "strftime") else str(selected_date)
+    name = f"{date_str} {selected_time} - {selected_side}"
 
     fig.add_trace(
         go.Scatter(
@@ -180,5 +187,5 @@ fig.update_layout(
 
 st.plotly_chart(
     fig,
-    use_container_width=True
+    width="stretch"
 )
