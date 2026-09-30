@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 # SETTINGS
 # ============================================================
 
-duration = 15
-ymin = -20
-ymax = 400
+DURATION = 15
+YMIN = -20
+YMAX = 400
 
 
 # ============================================================
@@ -30,10 +30,20 @@ def load_excel(file):
 
 
 # ============================================================
-# STREAMLIT
+# STREAMLIT PAGE
 # ============================================================
 
-st.title("EL-DAM Offer Curves")
+st.set_page_config(
+    page_title="EL-DAM Curves",
+    layout="wide"
+)
+
+st.title("EL-DAM Offer / Demand Curves")
+
+
+# ============================================================
+# UPLOAD EXCEL
+# ============================================================
 
 uploaded_file = st.file_uploader(
     "Ανέβασε το Excel αρχείο",
@@ -41,74 +51,148 @@ uploaded_file = st.file_uploader(
 )
 
 
-# ============================================================
-# WAIT FOR FILE
-# ============================================================
-
 if uploaded_file is not None:
 
-    # Διαβάζουμε το Excel
+    # ========================================================
+    # LOAD DATA
+    # ========================================================
+
     df = load_excel(uploaded_file)
 
-    # Κρατάμε μόνο 15λεπτα
+    # Κρατάμε μόνο το duration που μας ενδιαφέρει
     df = df[
-        df["DELIVERY_DURATION"] == duration
+        df["DELIVERY_DURATION"] == DURATION
     ].copy()
 
+
     # ========================================================
-    # SELECT QUARTER
+    # FILTERS
     # ========================================================
 
-    mtus = sorted(df["MTU"].unique())
+    st.subheader("Επιλογές")
 
-    selected_mtu = st.selectbox(
-        "Επίλεξε τέταρτο:",
-        mtus,
-        format_func=lambda x:
-            pd.Timestamp(x).strftime("%H:%M")
+
+    col1, col2, col3 = st.columns(3)
+
+
+    # --------------------------------------------------------
+    # DATE
+    # --------------------------------------------------------
+
+    dates = sorted(
+        df["MTU"].dt.date.unique()
     )
 
+    with col1:
+
+        selected_date = st.selectbox(
+            "Ημερομηνία",
+            dates,
+            format_func=lambda x:
+                pd.Timestamp(x).strftime("%d/%m/%Y")
+        )
+
+
+    # --------------------------------------------------------
+    # QUARTER
+    # --------------------------------------------------------
+
+    df_date = df[
+        df["MTU"].dt.date == selected_date
+    ]
+
+    mtus = sorted(
+        df_date["MTU"].unique()
+    )
+
+    with col2:
+
+        selected_mtu = st.selectbox(
+            "Τέταρτο",
+            mtus,
+            format_func=lambda x:
+                pd.Timestamp(x).strftime("%H:%M")
+        )
+
+
+    # --------------------------------------------------------
+    # CURVE TYPE
+    # --------------------------------------------------------
+
+    with col3:
+
+        curve_type = st.selectbox(
+            "Καμπύλη",
+            [
+                "Προσφορά (Sell)",
+                "Ζήτηση (Buy)"
+            ]
+        )
+
+
     # ========================================================
-    # SELECTED MTU
+    # FILTER SELECTED MTU
     # ========================================================
 
     d = df[
         df["MTU"] == selected_mtu
     ]
 
-    # Μόνο προσφορές Sell
-    sell = d[
-        d["SIDE_DESCR"] == "Sell"
-    ].sort_values("AA")
+
+    # ========================================================
+    # SELECT BUY / SELL
+    # ========================================================
+
+    if curve_type == "Προσφορά (Sell)":
+
+        curve = d[
+            d["SIDE_DESCR"] == "Sell"
+        ].sort_values("AA")
+
+        curve_label = "Προσφορά (Sell)"
+
+    else:
+
+        curve = d[
+            d["SIDE_DESCR"] == "Buy"
+        ].sort_values("AA")
+
+        curve_label = "Ζήτηση (Buy)"
+
 
     # ========================================================
     # PLOT
     # ========================================================
 
-    if sell.empty:
+    if curve.empty:
 
         st.warning(
-            f"Δεν βρέθηκαν προσφορές για "
+            f"Δεν βρέθηκαν δεδομένα για "
             f"{pd.Timestamp(selected_mtu):%d/%m/%Y %H:%M}"
         )
 
     else:
 
         fig, ax = plt.subplots(
-            figsize=(10, 6)
+            figsize=(12, 7)
         )
+
 
         ax.plot(
-            sell["QUANTITY"],
-            sell["UNITPRICE"],
-            color="#1f77b4",
+            curve["QUANTITY"],
+            curve["UNITPRICE"],
             lw=1.8,
-            label="Προσφορά (Sell)"
+            label=curve_label
         )
 
+
+        # ----------------------------------------------------
+        # AXES
+        # ----------------------------------------------------
+
         ax.set_ylim(
-            ymin,
-            ymax
+            YMIN,
+            YMAX
         )
 
         ax.set_xlabel(
@@ -119,10 +203,16 @@ if uploaded_file is not None:
             "Τιμή (€/MWh)"
         )
 
+
+        # ----------------------------------------------------
+        # TITLE
+        # ----------------------------------------------------
+
         ax.set_title(
-            f"EL-DAM Offer Curve – "
+            f"EL-DAM {curve_label} – "
             f"{pd.Timestamp(selected_mtu):%d/%m/%Y %H:%M}"
         )
+
 
         ax.grid(
             alpha=0.3
@@ -132,4 +222,28 @@ if uploaded_file is not None:
 
         fig.tight_layout()
 
+
+        # ----------------------------------------------------
+        # DISPLAY
+        # ----------------------------------------------------
+
         st.pyplot(fig)
+
+
+        # ====================================================
+        # INFORMATION
+        # ====================================================
+
+        st.write(
+            f"**Ημερομηνία:** "
+            f"{pd.Timestamp(selected_mtu):%d/%m/%Y}"
+        )
+
+        st.write(
+            f"**Τέταρτο:** "
+            f"{pd.Timestamp(selected_mtu):%H:%M}"
+        )
+
+        st.write(
+            f"**Καμπύλη:** {curve_label}"
+        )
