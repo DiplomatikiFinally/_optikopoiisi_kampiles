@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 
 # ============================================================
@@ -8,8 +8,33 @@ import matplotlib.pyplot as plt
 # ============================================================
 
 DURATION = 15
-YMIN = -20
-YMAX = 400
+
+
+# ============================================================
+# STREAMLIT
+# ============================================================
+
+st.set_page_config(
+    page_title="EL-DAM Curves",
+    layout="wide"
+)
+
+st.title("EL-DAM Curves")
+
+
+# ============================================================
+# UPLOAD EXCEL
+# ============================================================
+
+uploaded_file = st.file_uploader(
+    "Ανέβασε το Excel αρχείο",
+    type=["xlsx"]
+)
+
+
+if uploaded_file is None:
+    st.info("Ανέβασε ένα Excel αρχείο για να ξεκινήσεις.")
+    st.stop()
 
 
 # ============================================================
@@ -29,221 +54,225 @@ def load_excel(file):
     return df
 
 
+df = load_excel(uploaded_file)
+
+
 # ============================================================
-# STREAMLIT PAGE
+# FILTER DURATION
 # ============================================================
 
-st.set_page_config(
-    page_title="EL-DAM Curves",
-    layout="wide"
+df = df[
+    df["DELIVERY_DURATION"] == DURATION
+].copy()
+
+
+# ============================================================
+# FILTER OPTIONS
+# ============================================================
+
+available_dates = sorted(
+    df["MTU"].dt.date.unique()
 )
 
-st.title("EL-DAM Offer / Demand Curves")
-
-
-# ============================================================
-# UPLOAD EXCEL
-# ============================================================
-
-uploaded_file = st.file_uploader(
-    "Ανέβασε το Excel αρχείο",
-    type=["xlsx"]
+available_times = sorted(
+    df["MTU"].dt.strftime("%H:%M").unique()
 )
 
 
-if uploaded_file is not None:
+# ============================================================
+# SIDEBAR
+# ============================================================
 
-    # ========================================================
-    # LOAD DATA
-    # ========================================================
-
-    df = load_excel(uploaded_file)
-
-    # Κρατάμε μόνο το duration που μας ενδιαφέρει
-    df = df[
-        df["DELIVERY_DURATION"] == DURATION
-    ].copy()
+st.sidebar.header("Filters")
 
 
-    # ========================================================
-    # FILTERS
-    # ========================================================
+# ------------------------------------------------------------
+# DATE
+# ------------------------------------------------------------
 
-    st.subheader("Επιλογές")
-
-
-    col1, col2, col3 = st.columns(3)
-
-
-    # --------------------------------------------------------
-    # DATE
-    # --------------------------------------------------------
-
-    dates = sorted(
-        df["MTU"].dt.date.unique()
-    )
-
-    with col1:
-
-        selected_date = st.selectbox(
-            "Ημερομηνία",
-            dates,
-            format_func=lambda x:
-                pd.Timestamp(x).strftime("%d/%m/%Y")
-        )
+selected_dates = st.sidebar.multiselect(
+    "Ημερομηνία",
+    available_dates,
+    default=[available_dates[0]],
+    format_func=lambda x:
+        pd.Timestamp(x).strftime("%d/%m/%Y")
+)
 
 
-    # --------------------------------------------------------
-    # QUARTER
-    # --------------------------------------------------------
+# ------------------------------------------------------------
+# QUARTER
+# ------------------------------------------------------------
 
-    df_date = df[
-        df["MTU"].dt.date == selected_date
-    ]
-
-    mtus = sorted(
-        df_date["MTU"].unique()
-    )
-
-    with col2:
-
-        selected_mtu = st.selectbox(
-            "Τέταρτο",
-            mtus,
-            format_func=lambda x:
-                pd.Timestamp(x).strftime("%H:%M")
-        )
+selected_times = st.sidebar.multiselect(
+    "Τέταρτο",
+    available_times,
+    default=["12:00"]
+)
 
 
-    # --------------------------------------------------------
-    # CURVE TYPE
-    # --------------------------------------------------------
+# ------------------------------------------------------------
+# CURVE TYPE
+# ------------------------------------------------------------
 
-    with col3:
-
-        curve_type = st.selectbox(
-            "Καμπύλη",
-            [
-                "Προσφορά (Sell)",
-                "Ζήτηση (Buy)"
-            ]
-        )
+curve_types = st.sidebar.multiselect(
+    "Καμπύλες",
+    ["Sell", "Buy"],
+    default=["Sell"]
+)
 
 
-    # ========================================================
-    # FILTER SELECTED MTU
-    # ========================================================
+# ------------------------------------------------------------
+# PRICE RANGE
+# ------------------------------------------------------------
 
-    d = df[
-        df["MTU"] == selected_mtu
-    ]
+price_min = st.sidebar.number_input(
+    "Min τιμή",
+    value=-20.0
+)
+
+price_max = st.sidebar.number_input(
+    "Max τιμή",
+    value=400.0
+)
 
 
-    # ========================================================
-    # SELECT BUY / SELL
-    # ========================================================
+# ============================================================
+# CHECK FILTERS
+# ============================================================
 
-    if curve_type == "Προσφορά (Sell)":
+if not selected_dates:
+    st.warning("Επίλεξε τουλάχιστον μία ημερομηνία.")
+    st.stop()
 
-        curve = d[
-            d["SIDE_DESCR"] == "Sell"
+
+if not selected_times:
+    st.warning("Επίλεξε τουλάχιστον ένα τέταρτο.")
+    st.stop()
+
+
+if not curve_types:
+    st.warning("Επίλεξε τουλάχιστον μία καμπύλη.")
+    st.stop()
+
+
+# ============================================================
+# FILTER DATA
+# ============================================================
+
+df_filtered = df[
+    df["MTU"].dt.date.isin(selected_dates)
+    &
+    df["MTU"].dt.strftime("%H:%M").isin(selected_times)
+    &
+    df["SIDE_DESCR"].isin(curve_types)
+].copy()
+
+
+# ============================================================
+# PLOTLY
+# ============================================================
+
+fig = go.Figure()
+
+
+for mtu in sorted(df_filtered["MTU"].unique()):
+
+    for side in curve_types:
+
+        curve = df_filtered[
+            (df_filtered["MTU"] == mtu)
+            &
+            (df_filtered["SIDE_DESCR"] == side)
         ].sort_values("AA")
 
-        curve_label = "Προσφορά (Sell)"
 
-    else:
-
-        curve = d[
-            d["SIDE_DESCR"] == "Buy"
-        ].sort_values("AA")
-
-        curve_label = "Ζήτηση (Buy)"
+        if curve.empty:
+            continue
 
 
-    # ========================================================
-    # PLOT
-    # ========================================================
+        if side == "Sell":
+            label = "Sell"
+        else:
+            label = "Buy"
 
-    if curve.empty:
 
-        st.warning(
-            f"Δεν βρέθηκαν δεδομένα για "
-            f"{pd.Timestamp(selected_mtu):%d/%m/%Y %H:%M}"
-        )
-
-    else:
-
-        fig, ax = plt.subplots(
-            figsize=(12, 7)
+        name = (
+            f"{pd.Timestamp(mtu):%d/%m %H:%M} - "
+            f"{label}"
         )
 
 
-        ax.plot(
-            curve["QUANTITY"],
-            curve["UNITPRICE"],
-            lw=1.8,
-            label=curve_label
+        fig.add_trace(
+            go.Scatter(
+                x=curve["QUANTITY"],
+                y=curve["UNITPRICE"],
+                mode="lines",
+                name=name,
+                hovertemplate=
+                    "Quantity: %{x:,.0f} MW"
+                    "<br>"
+                    "Price: %{y:.2f} €/MWh"
+                    "<extra>"
+                    + name +
+                    "</extra>"
+            )
         )
 
 
-        # ----------------------------------------------------
-        # AXES
-        # ----------------------------------------------------
+# ============================================================
+# LAYOUT
+# ============================================================
 
-        ax.set_ylim(
-            YMIN,
-            YMAX
-        )
+fig.update_layout(
 
-        ax.set_xlabel(
-            "Αθροιστική ποσότητα (MW)"
-        )
+    title="EL-DAM Aggregated Curves",
 
-        ax.set_ylabel(
-            "Τιμή (€/MWh)"
-        )
+    xaxis_title="Αθροιστική ποσότητα (MW)",
 
+    yaxis_title="Τιμή (€/MWh)",
 
-        # ----------------------------------------------------
-        # TITLE
-        # ----------------------------------------------------
+    yaxis=dict(
+        range=[
+            price_min,
+            price_max
+        ]
+    ),
 
-        ax.set_title(
-            f"EL-DAM {curve_label} – "
-            f"{pd.Timestamp(selected_mtu):%d/%m/%Y %H:%M}"
-        )
+    hovermode="closest",
 
+    height=700,
 
-        ax.grid(
-            alpha=0.3
-        )
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="left",
+        x=0
+    ),
 
-        ax.legend()
-
-        fig.tight_layout()
-
-
-        # ----------------------------------------------------
-        # DISPLAY
-        # ----------------------------------------------------
-
-        st.pyplot(fig)
+    margin=dict(
+        l=60,
+        r=30,
+        t=100,
+        b=60
+    )
+)
 
 
-        # ====================================================
-        # INFORMATION
-        # ====================================================
+# ============================================================
+# DISPLAY
+# ============================================================
 
-        st.write(
-            f"**Ημερομηνία:** "
-            f"{pd.Timestamp(selected_mtu):%d/%m/%Y}"
-        )
+st.plotly_chart(
+    fig,
+    use_container_width=True
+)
 
-        st.write(
-            f"**Τέταρτο:** "
-            f"{pd.Timestamp(selected_mtu):%H:%M}"
-        )
 
-        st.write(
-            f"**Καμπύλη:** {curve_label}"
-        )
+# ============================================================
+# INFO
+# ============================================================
+
+st.write(
+    f"**{len(fig.data)} καμπύλες εμφανίζονται**"
+)
